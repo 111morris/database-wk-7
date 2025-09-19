@@ -1,0 +1,97 @@
+name: Check SQL Assignment Week 7
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DB_DATABASE: salesDB
+      DB_USER: root
+      DB_PASSWORD: root
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Update and install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install mysql-server mysql-client -y
+
+      - name: Start MySQL
+        run: |
+          sudo /etc/init.d/mysql start
+          mysql -e "CREATE DATABASE IF NOT EXISTS $DB_DATABASE;" -u$DB_USER -p$DB_PASSWORD
+
+      - name: Ensure MySQL is running
+        run: |
+          sudo systemctl status mysql | grep 'active (running)' || exit 1
+
+      - name: Execute SQL script (answers.sql)
+        run: |
+          if [ -f ./answers.sql ]; then
+            echo "Executing answers.sql"
+            sudo mysql -u$DB_USER -p$DB_PASSWORD $DB_DATABASE < ./answers.sql
+          else
+            echo "answers.sql file is missing. Failing the workflow."
+            exit 1
+          fi
+
+      - name: Validate if ProductDetail table exists
+        run: |
+          TABLE_EXISTS=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SHOW TABLES LIKE 'ProductDetail';" | tail -n1)
+          if [ -z "$TABLE_EXISTS" ]; then
+            echo "ProductDetail table does not exist. Failing the workflow."
+            exit 1
+          fi
+
+      - name: Validate if Orders table exists
+        run: |
+          TABLE_EXISTS=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SHOW TABLES LIKE 'Orders';" | tail -n1)
+          if [ -z "$TABLE_EXISTS" ]; then
+            echo "Orders table does not exist. Failing the workflow."
+            exit 1
+          fi
+
+      - name: Validate if Product table exists
+        run: |
+          TABLE_EXISTS=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SHOW TABLES LIKE 'Product';" | tail -n1)
+          if [ -z "$TABLE_EXISTS" ]; then
+            echo "Product table does not exist. Failing the workflow."
+            exit 1
+          fi
+
+      - name: Validate SQL Queries
+        run: |
+          # Validate ProductDetail table has 6 rows
+          PRODUCT_DETAIL_COUNT=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SELECT COUNT(*) FROM ProductDetail;" | tail -n1)
+          if [ "$PRODUCT_DETAIL_COUNT" -ne 6 ]; then
+            echo "ProductDetail table does not have the expected 6 rows, found $PRODUCT_DETAIL_COUNT."
+            exit 1
+          fi
+
+          # Validate Orders table has 3 rows
+          ORDERS_COUNT=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SELECT COUNT(*) FROM Orders;" | tail -n1)
+          if [ "$ORDERS_COUNT" -ne 3 ]; then
+            echo "Orders table does not have the expected 3 rows, found $ORDERS_COUNT."
+            exit 1
+          fi
+
+          # Validate Product table has 6 rows
+          PRODUCT_COUNT=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SELECT COUNT(*) FROM Product;" | tail -n1)
+          if [ "$PRODUCT_COUNT" -ne 6 ]; then
+            echo "Product table does not have the expected 6 rows, found $PRODUCT_COUNT."
+            exit 1
+          fi
+
+          # Validate foreign key relationship in Product table
+          INVALID_FOREIGN_KEYS=$(mysql --batch -u$DB_USER -p$DB_PASSWORD $DB_DATABASE -e "SELECT COUNT(*) FROM Product WHERE OrderID NOT IN (SELECT OrderID FROM Orders);" | tail -n1)
+          if [ "$INVALID_FOREIGN_KEYS" -ne 0 ]; then
+            echo "Product table contains invalid foreign keys referencing Orders table. Invalid rows: $INVALID_FOREIGN_KEYS."
+            exit 1
+          fi
+
+      - name: Mark test successful
+        run: echo "All tests passed successfully!"
